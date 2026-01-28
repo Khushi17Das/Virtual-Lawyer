@@ -238,13 +238,46 @@ def render_home_query_tab():
 # ================= 5. MAIN APP START =================
 st.set_page_config(page_title="Virtual Lawyer ⚖️", layout="wide")
 
-# Dark Teal CSS
+# Dark Teal CSS Fix (Everything Forced to White)
 st.markdown("""
 <style>
-.stApp { background-color: #001f3f; color: white; }
-h1, h2, h3 { color: #4CC5B3 !important; }
-.stButton>button { background-color: #008080; color: white; }
-[data-testid="stSidebar"] { background-color: #003366; }
+/* 1. Main Background */
+.stApp { 
+    background-color: #001f3f; 
+}
+
+/* 2. Force ALL text (paragraphs, labels, spans) to White */
+.stApp p, .stApp label, .stApp span, .stApp div, .stApp .stMarkdown {
+    color: #FFFFFF !important;
+}
+
+/* 3. Headers Color */
+h1, h2, h3 { 
+    color: #4CC5B3 !important; 
+}
+
+/* 4. Input Fields Text Color Fix */
+input, textarea, [data-baseweb="select"] {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* 5. Buttons & Sidebar */
+.stButton>button { 
+    background-color: #008080; 
+    color: white !important; 
+}
+[data-testid="stSidebar"] { 
+    background-color: #003366; 
+}
+[data-testid="stSidebar"] * {
+    color: white !important;
+}
+
+/* 6. Radio Button specific fix */
+div[data-testid="stWidgetLabel"] p {
+    color: #FFFFFF !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -281,4 +314,5 @@ else:
     with tabs[0]: render_home_query_tab()
     with tabs[1]: render_law_search_tab()
     if st.session_state["role"]=="advocate":
+
         with tabs[2]: render_admin_tab()
