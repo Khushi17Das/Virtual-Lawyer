@@ -238,7 +238,7 @@ def render_home_query_tab():
 # ================= 5. MAIN APP START =================
 st.set_page_config(page_title="Virtual Lawyer ⚖️", layout="wide")
 
-# Dark Teal CSS Fix (Everything Forced to White)
+# Dark Teal CSS (Input Box Visibility Fix)
 st.markdown("""
 <style>
 /* 1. Main Background */
@@ -246,37 +246,38 @@ st.markdown("""
     background-color: #001f3f; 
 }
 
-/* 2. Force ALL text (paragraphs, labels, spans) to White */
-.stApp p, .stApp label, .stApp span, .stApp div, .stApp .stMarkdown {
+/* 2. Global Text to White */
+.stApp p, .stApp label, .stApp span, .stApp .stMarkdown {
     color: #FFFFFF !important;
 }
 
-/* 3. Headers Color */
+/* 3. Input Boxes (Username/Password) Styling */
+/* Hum box ka background thoda dark rakhenge taaki white text dikhe */
+input, textarea {
+    background-color: #002b55 !important; /* Dark Blue background */
+    color: #FFFFFF !important; /* White typing text */
+    border: 1px solid #4CC5B3 !important; /* Teal border */
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+
+/* 4. Headers */
 h1, h2, h3 { 
     color: #4CC5B3 !important; 
 }
 
-/* 4. Input Fields Text Color Fix */
-input, textarea, [data-baseweb="select"] {
-    color: #FFFFFF !important;
-    -webkit-text-fill-color: #FFFFFF !important;
-}
-
-/* 5. Buttons & Sidebar */
+/* 5. Buttons */
 .stButton>button { 
     background-color: #008080; 
     color: white !important; 
+    border-radius: 5px;
 }
+
+/* 6. Sidebar */
 [data-testid="stSidebar"] { 
     background-color: #003366; 
 }
 [data-testid="stSidebar"] * {
     color: white !important;
-}
-
-/* 6. Radio Button specific fix */
-div[data-testid="stWidgetLabel"] p {
-    color: #FFFFFF !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -316,3 +317,4 @@ else:
     if st.session_state["role"]=="advocate":
 
         with tabs[2]: render_admin_tab()
+
