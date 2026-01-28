@@ -114,36 +114,36 @@ BUNDLED_LAWS = [
 ]
 
 def seed_default_if_empty():
-    try:
+   try:
         conn = get_db_conn(); cur = conn.cursor()
-        for u,p,r in DEFAULT_USERS:
-            cur.execute("INSERT INTO users (username, password, role) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE password=VALUES(password)", (u,p,r))
+        # Default users
+        cur.execute("INSERT IGNORE INTO users (username, password, role) VALUES ('admin', 'advocate_secure_2024', 'advocate'), ('client', 'client_secure_pass', 'client')")
         cur.execute("SELECT COUNT(1) FROM laws")
         if cur.fetchone()[0] == 0:
-            for sec,tit,short,cat,kws,text in BUNDLED_LAWS:
-                cur.execute("INSERT IGNORE INTO laws (section,title,short_desc,category,keywords,official_text) VALUES (%s,%s,%s,%s,%s,%s)", (sec,tit,short,cat,kws,text))
+            bundled = [("302","Murder","Punishment for murder","IPC","murder,kill,stab",""), ("420","Cheating","Fraud cases","IPC","cheat,fraud",""), ("138","Cheque Bounce","NI Act","NIA","cheque,bounce","")]
+            for sec, tit, desc, cat, kws, txt in bundled:
+                cur.execute("INSERT IGNORE INTO laws (section, title, short_desc, category, keywords, official_text) VALUES (%s,%s,%s,%s,%s,%s)", (sec, tit, desc, cat, kws, txt))
         conn.commit(); cur.close(); conn.close()
     except: pass
 
-SYNONYMS = {'murder':'302','kill':'302','homicide':'304','assault':'307','dowry':'304B','rape':'376','cheat':'420','theft':'379','cheque':'138','consumer':'2(1)(g)'}
+SYNONYMS = {'murder':'302','kill':'302','homicide':'304','cheat':'420','fraud':'420','theft':'379','cheque':'138'}
 def tokenize(text): return re.findall(r"[a-zA-Z0-9]+", (text or "").lower())
 
 def score_law_match(text):
     try:
         conn = get_db_conn(); cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT law_id, section, title, short_desc, keywords FROM laws")
-        laws = cur.fetchall(); cur.close(); conn.close()
+        cur.execute("SELECT * FROM laws"); laws = cur.fetchall(); cur.close(); conn.close()
+        tokens = tokenize(text); matched = []
+        for law in laws:
+            score = 0; matched_kws = set(); kws = [k.strip() for k in (law['keywords'] or "").split(",") if k.strip()]
+            for t in tokens:
+                if t in SYNONYMS and SYNONYMS[t] == law['section']: score += 3; matched_kws.add(t)
+                if t in kws: score += 2; matched_kws.add(t)
+                if t in (law['title'] or "").lower(): score += 1; matched_kws.add(t)
+            if law['section'] in tokens: score += 5; matched_kws.add(law['section'])
+            if score > 0: matched.append({"law_id":law['law_id'], "section":law['section'], "title":law['title'], "short_desc":law['short_desc'], "score":score, "matched_keywords":list(matched_kws)})
+        matched.sort(key=lambda x:-x['score']); return matched
     except: return []
-    tokens = tokenize(text); matched=[]
-    for law in laws:
-        score=0; matched_tokens=set(); kws=[k.strip() for k in (law['keywords'] or "").split(",") if k.strip()]
-        for t in tokens:
-            if t in SYNONYMS and SYNONYMS[t]==law['section']: score+=3; matched_tokens.add(t)
-            if t in kws: score+=2; matched_tokens.add(t)
-            if t in (law['title'] or "").lower() or t in (law['short_desc'] or "").lower(): score+=1; matched_tokens.add(t)
-        if law['section'] in tokens: score+=5; matched_tokens.add(law['section'])
-        if score>0: matched.append({"law_id":law['law_id'], "section":law['section'], "title":law['title'], "short_desc":law['short_desc'], "score":score, "matched_keywords":list(matched_tokens)})
-    matched.sort(key=lambda x:-x['score']); return matched
 
 def extract_text_from_pdf_bytes(bytestream):
     if fitz is None: return ""
@@ -166,50 +166,52 @@ def render_law_search_tab():
     conn.close()
 
 def render_document_checklist():
-    st.subheader("Document Checklist Assistant")
+    st.header("📋 Document Checklist Assistant")
     case_docs = {
-        "Mutual Consent Divorce": ["Marriage Certificate", "Wedding Photos", "Aadhar Card", "IT Returns"],
-        "Domestic Violence": ["Incident List", "Medical Reports", "FIR Copy", "Shared Household Proof"],
-        "Cheque Bounce": ["Original Cheque", "Bank Return Memo", "Legal Notice", "Postal Receipt"],
-        "Cyber Fraud": ["Screenshots", "Bank Statement", "Email Header", "ID Proof"]
+        "Mutual Consent Divorce": ["Marriage Certificate", "Wedding Photos", "Aadhar Card", "Separation Proof"],
+        "Cheque Bounce (Sec 138)": ["Original Cheque", "Bank Return Memo", "Legal Demand Notice", "Postal Receipt"],
+        "Cyber Fraud": ["Screenshots of Chat", "Bank Statement", "Email Headers", "ID Proof"]
     }
     sel = st.selectbox("Select Case Category:", ["-- Choose --"] + list(case_docs.keys()))
     if sel != "-- Choose --":
-        for doc in case_docs[sel]: st.checkbox(doc, key=f"chk_{sel}_{doc}")
+        st.write(f"### Required for {sel}:")
+        for doc in case_docs[sel]: st.checkbox(doc, key=f"chk_{doc}")
 
 def render_home_query_tab():
-    st.header(f"Query Database, {st.session_state['username']}")
-    query_text = st.text_area("Describe your case:", height=150)
+    st.header(f"⚖️ Welcome, {st.session_state['username']}")
+    query_text = st.text_area("Describe your case here:", height=150)
+    
+    # CSS target for the Uploader Box to make it dark teal/navy
+    st.markdown('<div class="dark-uploader">', unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload PDF Evidence", type=["pdf"])
+    st.markdown('</div>', unsafe_allow_html=True)
+
     if st.button("Find Matching Law Section(s)", use_container_width=True):
-        full_q = query_text
-        if uploaded_file and fitz:
-            full_q += "\n" + extract_text_from_pdf_bytes(uploaded_file.read())
-        matches = score_law_match(full_q)
-        if matches:
-            st.success(f"Best Match: Section {matches[0]['section']}")
-            st.info(f"{matches[0]['title']} - {matches[0]['short_desc']}")
-            log_query(full_q, matches[0]['section'], matches[0]['law_id'], matches[0]['score'], {"user": st.session_state["username"]})
-        else: st.warning("No match found.")
+        if query_text:
+            matches = score_law_match(query_text)
+            if matches:
+                st.success(f"Best Match: Section {matches[0]['section']}")
+                st.info(f"**{matches[0]['title']}**: {matches[0]['short_desc']}")
+            else: st.warning("No direct match found. Try more specific keywords.")
 
 def render_admin_tab():
-    st.header("Admin & Data Management")
-    with st.form("add_law_form"):
+    st.header("Advocate Dashboard")
+    with st.form("add_law"):
         st.subheader("Add New Law Entry")
-        sec = st.text_input("Section")
+        c1, c2 = st.columns(2)
+        sec = c1.text_input("Section")
+        cat = c2.text_input("Category")
         tit = st.text_input("Title")
         desc = st.text_area("Short Description")
-        cat = st.text_input("Category")
-        kws = st.text_input("Keywords")
-        if st.form_submit_button("Add Law"):
+        if st.form_submit_button("Save Law"):
             try:
                 conn = get_db_conn(); cur = conn.cursor()
-                cur.execute("INSERT INTO laws (section, title, short_desc, category, keywords) VALUES (%s,%s,%s,%s,%s)", (sec,tit,desc,cat,kws))
+                cur.execute("INSERT INTO laws (section, title, short_desc, category) VALUES (%s,%s,%s,%s)", (sec, tit, desc, cat))
                 conn.commit(); cur.close(); conn.close()
                 st.success("Law Added!")
             except Exception as e: st.error(f"Error: {e}")
 
-# ================= 5. LOGIN / SIGNUP JUGAD =================
+# ================= 5. LOGIN / SIGNUP =================
 def render_auth():
     st.markdown("<div class='app-header'><h1>Virtual Lawyer ⚖️</h1></div>", unsafe_allow_html=True)
     auth_tabs = st.tabs(["Login", "Sign Up"])
@@ -239,32 +241,96 @@ def render_auth():
 
 # ================= 6. STYLING & MAIN =================
 st.set_page_config(page_title="Virtual Lawyer ⚖️", layout="wide")
+
 st.markdown("""
 <style>
-.stApp { background-color: #001f3f; color: white; }
-h1, h2, h3 { color: #4CC5B3 !important; }
-input, textarea, [data-testid="stFileUploader"] { 
-    background-color: #002b55 !important; color: white !important; 
-    border: 1px solid #008080 !important; -webkit-text-fill-color: white !important;
+/* Main App Background */
+.stApp { background-color: #001f3f; color: #FFFFFF; }
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] { background-color: #003366 !important; border-right: 1px solid #4CC5B3; }
+[data-testid="stSidebar"] * { color: #FFFFFF !important; }
+
+/* Input Fields (Ghost Text Fix) */
+input, textarea { 
+    background-color: #002b55 !important; 
+    color: white !important; 
+    border: 1px solid #4CC5B3 !important;
+    -webkit-text-fill-color: white !important;
 }
-.stApp p, .stApp label, .stApp span { color: white !important; }
-.stButton>button { background-color: #008080; color: white; border-radius: 8px; width: 100%; }
-.app-header { background: linear-gradient(90deg, #004d40, #008080); padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; }
+
+/* FILE UPLOADER DARK FIX */
+[data-testid="stFileUploader"] {
+    background-color: #002b55 !important;
+    border: 2px dashed #4CC5B3 !important;
+    border-radius: 10px;
+    padding: 10px;
+}
+[data-testid="stFileUploaderText"] > span { color: #FFFFFF !important; }
+[data-testid="stFileUploader"] section { background-color: transparent !important; }
+
+/* Headers and Buttons */
+h1, h2, h3 { color: #4CC5B3 !important; }
+.stButton>button { 
+    background-color: #008080 !important; 
+    color: white !important; 
+    border-radius: 8px;
+    border: none;
+    font-weight: bold;
+}
+
+/* Tabs Styling */
+.stTabs [data-baseweb="tab"] { color: #FFFFFF !important; }
+.stTabs [aria-selected="true"] { color: #4CC5B3 !important; border-bottom-color: #4CC5B3 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 if init_db_and_seed(): seed_default_if_empty()
 
 if "role" not in st.session_state or st.session_state["role"] is None:
-    render_auth()
+    st.markdown("<h1 style='text-align: center;'>Virtual Lawyer ⚖️</h1>", unsafe_allow_html=True)
+    t1, t2 = st.tabs(["Login", "Create Account"])
+    with t1:
+        u = st.text_input("Username", key="l_u")
+        p = st.text_input("Password", type="password", key="l_p")
+        r = st.radio("Role", ["Advocate", "Client"], horizontal=True)
+        if st.button("Login"):
+            conn = get_db_conn(); cur = conn.cursor()
+            cur.execute("SELECT username, role FROM users WHERE username=%s AND password=%s", (u,p))
+            res = cur.fetchone(); cur.close(); conn.close()
+            if res and res[1].lower() == r.lower():
+                st.session_state["role"], st.session_state["username"] = res[1], res[0]
+                st.rerun()
+            else: st.error("Invalid Username/Password or Role mismatch")
+    with t2:
+        nu = st.text_input("New Username")
+        np = st.text_input("New Password (Use 8+ chars)", type="password")
+        nr = st.selectbox("Register as", ["Client", "Advocate"])
+        if st.button("Sign Up"):
+            try:
+                conn = get_db_conn(); cur = conn.cursor()
+                cur.execute("INSERT INTO users (username, password, role) VALUES (%s,%s,%s)", (nu,np,nr))
+                conn.commit(); cur.close(); conn.close()
+                st.success("Registered! Now Login.")
+            except: st.error("Username already taken.")
 else:
-    st.sidebar.title(f"Hi, {st.session_state['username']}")
-    if st.sidebar.button("Logout"): st.session_state["role"] = None; st.rerun()
+    st.sidebar.subheader(f"User: {st.session_state['username']}")
+    if st.sidebar.button("Logout"): 
+        st.session_state["role"] = None
+        st.rerun()
+
     titles = ["Home: Query Law", "Document Checklist", "Law Database"]
     if st.session_state["role"].lower() == "advocate": titles.append("Admin Dashboard")
+    
     tabs = st.tabs(titles)
     with tabs[0]: render_home_query_tab()
     with tabs[1]: render_document_checklist()
-    with tabs[2]: render_law_search_tab()
-    if len(tabs)>3: 
+    with tabs[2]:
+        st.header("Law Database")
+        conn = get_db_conn()
+        df = pd.read_sql("SELECT section, title, category FROM laws", conn)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        conn.close()
+    if len(tabs) > 3:
         with tabs[3]: render_admin_tab()
+
